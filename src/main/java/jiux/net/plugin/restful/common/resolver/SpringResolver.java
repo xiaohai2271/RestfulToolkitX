@@ -3,6 +3,9 @@ package jiux.net.plugin.restful.common.resolver;
 
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.roots.ContentIterator;
+import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.vfs.*;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.java.stubs.index.JavaAnnotationIndex;
 import com.intellij.psi.search.GlobalSearchScope;
@@ -13,9 +16,12 @@ import jiux.net.plugin.restful.common.spring.RequestMappingAnnotationHelper;
 import jiux.net.plugin.restful.method.RequestPath;
 import jiux.net.plugin.restful.method.action.PropertiesHandler;
 import jiux.net.plugin.restful.navigation.action.RestServiceItem;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.kotlin.idea.stubindex.KotlinAnnotationsIndex;
 import org.jetbrains.kotlin.psi.*;
 
+import java.io.File;
+import java.io.IOException;
 import java.util.*;
 
 public class SpringResolver extends BaseServiceResolver {
@@ -125,14 +131,15 @@ public class SpringResolver extends BaseServiceResolver {
             // FIXME java.lang.Throwable: Slow operations are prohibited on EDT. See SlowOperations.assertSlowOperationsAreAllowed javadoc.
             // https://youtrack.jetbrains.com/issue/IDEA-273415
             Collection<PsiAnnotation> psiAnnotations = JavaAnnotationIndex.getInstance()
-                                                    .get(controllerAnnotation.getShortName(), project, globalSearchScope);
+                    .get(controllerAnnotation.getShortName(), project, globalSearchScope);
 
+            List<RestServiceItem> serviceItemList = null;
             for (PsiAnnotation psiAnnotation : psiAnnotations) {
                 PsiModifierList psiModifierList = (PsiModifierList) psiAnnotation.getParent();
                 PsiElement psiElement = psiModifierList.getParent();
 
                 PsiClass psiClass = (PsiClass) psiElement;
-                List<RestServiceItem> serviceItemList = getServiceItemList(psiClass);
+                serviceItemList = getServiceItemList(psiClass);
                 itemList.addAll(serviceItemList);
             }
             // kotlin:
@@ -154,6 +161,10 @@ public class SpringResolver extends BaseServiceResolver {
                         }
                     }
                 }
+            }
+
+            if (controllerAnnotation == SpringControllerAnnotation.REST_CONTROLLER) {
+                handleContextPath(itemList);
             }
         }
         return itemList;
@@ -305,5 +316,46 @@ public class SpringResolver extends BaseServiceResolver {
             }
         }
         return new ArrayList<>();
+    }
+
+    private void handleContextPath(List<RestServiceItem> serviceItemList) {
+        String basePath = myProject.getBasePath();
+        String configPath = "/src/main/resources/";
+        String[] suffix = {"yml", "properties"};
+        String fileName = "application";
+
+        VirtualFile resources = LocalFileSystem.getInstance().findFileByIoFile(new File(basePath + configPath));
+        if (resources == null){
+            return;
+        }
+        VfsUtilCore.iterateChildrenRecursively(resources, VirtualFileFilter.ALL, fileOrDir -> {
+            if (!fileOrDir.isValid() || fileOrDir.isDirectory()) {
+                return true;
+            }
+            String name = fileOrDir.getName();
+            if (Arrays.stream(suffix).noneMatch(name::endsWith) || !name.startsWith(fileName)) {
+                return true;
+            }
+            Properties properties = new Properties();
+            try {
+                properties.load(fileOrDir.getInputStream());
+                String path = properties.getOrDefault("server.servlet.context-path", "").toString();
+                if (StringUtil.isEmpty(path)) {
+                    path = properties.getOrDefault("context-path", "").toString();
+                }
+                if (StringUtil.isEmpty(path)) {
+                    return true;
+                }
+                String finalPath = path;
+                serviceItemList.forEach(it -> {
+                    it.setUrl(("/" + finalPath + it.getUrl()).replaceAll("/+", "/"));
+                });
+                return false;
+            } catch (IOException e) {
+                return true;
+            }
+        });
+
+
     }
 }
