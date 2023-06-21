@@ -3,6 +3,7 @@ package jiux.net.plugin.restful.common.resolver;
 
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.project.ProjectUtil;
 import com.intellij.openapi.roots.ContentIterator;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.*;
@@ -319,7 +320,16 @@ public class SpringResolver extends BaseServiceResolver {
     }
 
     private void handleContextPath(List<RestServiceItem> serviceItemList) {
-        String basePath = myProject.getBasePath();
+        String basePath = "" ;
+        VirtualFile moduleDir = ProjectUtil.guessModuleDir(myModule);
+
+        if (myProject != null) {
+            basePath = myProject.getBasePath();
+        }
+
+        if (moduleDir != null) {
+            basePath = moduleDir.getPath();
+        }
         String configPath = "/src/main/resources/";
         String[] suffix = {"yml", "properties"};
         String fileName = "application";
